@@ -1,102 +1,219 @@
 # Healthcare RAG Document Assistant
 
-Stages 1–9: PDF extraction, chunking, Gemini embeddings, persistent storage, semantic retrieval, cited answers, saved-document discovery, an evaluation runner, and a React interface. Use synthetic documents only.
-This is a document retrieval and summarization project, not a diagnostic or treatment tool.
+A full-stack application for asking questions about synthetic healthcare PDFs.
+Upload a document, select it from your library, and receive answers grounded in
+retrieved passages, with filenames, original page numbers, and supporting quotes.
+The assistant abstains when retrieved evidence is insufficient.
 
-## Run on macOS
+Built with **Python, FastAPI, PyMuPDF, Gemini, ChromaDB, React, and Vite**.
+This is a document retrieval and summarization project, not a diagnostic or
+treatment recommendation system. Use synthetic documents only.
 
-Start in the backend directory:
+## Features
+
+- PDF validation and text extraction with original page numbers.
+- Page-based chunks with a 200-word size, 40-word overlap, and preserved line breaks.
+- Normalized 768-dimensional Gemini embeddings stored in persistent local ChromaDB.
+- Document-scoped semantic retrieval and a saved-document library.
+- Generated answers with source citations or explicit abstention.
+- A responsive React interface for uploads, questions, and source inspection.
+- Automated tests and a small synthetic evaluation dataset.
+
+## Architecture
+
+```text
+Upload:   PDF → extract pages → chunk text → Gemini embeddings → ChromaDB
+Question: question → query embedding → document-scoped retrieval
+          → Gemini generation → citation validation → answer or abstention
+```
+
+The backend supplies retrieved passages to Gemini at question time; it does not
+fine-tune the model. Citation metadata comes from stored records. The backend
+checks source IDs and quote presence, but these checks do not prove that a quote
+logically supports every generated claim.
+
+## Local setup
+
+Prerequisites: Git, Python with venv support, Node.js 22, npm, and a Gemini API key
+with embedding and generation access. Verified locally with Python 3.9 and Node 22.
+
+### Backend
+
+From the repository root:
 
 ```bash
-cd /Users/amisha/healthcare-rag-assistant/backend
+cd backend
+python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements-dev.txt
+```
+
+Create `backend/.env` in your editor with:
+
+```dotenv
+GEMINI_API_KEY=your_api_key_here
+GEMINI_GENERATION_MODEL=gemini-3.5-flash-lite
+```
+
+If `.env` already exists, update it without replacing other settings. The generation
+model above was used in successful local evaluations; choose a model available to
+your account. Environment variables override `.env`. Restart FastAPI after changes.
+Never commit your actual API key.
+
+From `backend/`, generate the fictional sample and start the server:
+
+```bash
 python scripts/create_sample_pdf.py
 uvicorn app.main:app --reload
 ```
 
-For a fresh checkout, run `python3 -m venv .venv` before activating the environment.
+- Health: http://127.0.0.1:8000/health
+- Swagger UI: http://127.0.0.1:8000/docs
 
-Open http://127.0.0.1:8000/health and expect `{"status":"ok"}`.
-Open http://127.0.0.1:8000/docs, expand `POST /documents/extract`, choose
-**Try it out**, select `backend/samples/synthetic-policy.pdf`, and click **Execute**.
+### Frontend
 
-Expect HTTP 200 with `filename`, `extracted_page_count: 2`, and a `pages` list
-containing page numbers 1 and 3. Page 2 is blank; page 3 keeps its original number
-so later citations can point to the correct page.
-
-## How the files interact
-
-`app/main.py` creates the FastAPI application and registers the documents router.
-`app/api/documents.py` validates the filename, content type, size, and PDF header.
-It passes the bytes to `app/services/pdf_extractor.py`, which opens the PDF in
-memory and extracts text page by page. No uploaded PDF is saved by the endpoint.
-
-`enumerate(document, start=1)` uses human-readable page numbering.
-`if text` skips pages without selectable text. The `with` block closes the PDF
-even when extraction fails. `run_in_threadpool` runs synchronous PDF extraction
-outside FastAPI's async event loop.
-
-The 10 MB limit bounds what the endpoint reads into memory after multipart parsing;
-it is not a server-level network request limit. A deployed service will also need
-request limits at the server or proxy layer.
-
-## Test
-
-In a second terminal, from the backend directory:
+In a second terminal, from the repository root:
 
 ```bash
-cd /Users/amisha/healthcare-rag-assistant/backend
-source .venv/bin/activate
+cd frontend
+npm ci
+npm run dev
+```
+
+Open **http://127.0.0.1:5173**. The Vite development proxy forwards `/api` requests
+to FastAPI on port 8000. API keys stay on the backend.
+
+## Try it
+
+1. Upload `backend/samples/synthetic-policy.pdf` through the interface.
+2. Ask: **Who should staff notify about missing inspection entries?**
+3. Check the shift coordinator answer and its supporting quote from page 3.
+4. Ask: **What time does the cafeteria open?** Expect abstention and no citations.
+5. Refresh the page. Saved uploads reload from ChromaDB.
+
+The sample has text on pages 1 and 3; page 2 is blank. Original page numbers remain
+intact. Each upload receives a unique document ID, even when filenames match.
+`GET /documents` recovers saved IDs. Uploaded original PDFs are not retained by the
+endpoint; extracted text, vectors, and metadata persist in `backend/chroma_data/`.
+
+Uploads and questions send synthetic text to Google and consume API quota; charges
+may apply. No real patient information is needed for this project.
+
+## API endpoints
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/health` | Check backend health |
+| GET | `/documents` | List saved uploads and IDs |
+| POST | `/documents/extract` | Inspect extracted pages |
+| POST | `/documents/chunks` | Inspect chunks |
+| POST | `/documents/embed` | Generate embeddings without saving |
+| POST | `/documents/ingest` | Embed and store an upload |
+| GET | `/documents/{id}/chunks` | Read stored passages |
+| POST | `/documents/{id}/search` | Retrieve relevant passages |
+| POST | `/documents/{id}/ask` | Generate a cited answer or abstain |
+
+Search and ask accept a JSON body such as:
+
+```json
+{
+  "question": "Who receives reports of missing inspection entries?",
+  "top_k": 2
+}
+```
+
+## Verification
+
+From `backend/`, with the virtual environment activated:
+
+```bash
 python -m pytest -q
 ```
 
-Verified locally: 96 tests passed (embedding provider calls are mocked). Six dependency
-warnings appeared: five from PyMuPDF and one about urllib3/LibreSSL; no test failed. Tests use generated synthetic PDFs and cover original
-page numbering, invalid uploads, the size limit, blank PDFs, password protection,
-missing uploads, and the health endpoint.
+The last verified run passed **96 tests**. Tests cover extraction, upload limits,
+chunking, embedding requests, real temporary Chroma storage, persistence across
+processes, document isolation, retrieval, citations, errors, and evaluation scoring.
+Cloud responses are mocked, so passing tests do not measure live-model accuracy.
+Six dependency warnings appeared: five from PyMuPDF and one about urllib3/LibreSSL.
 
-HTTP 400 means an empty, invalid, unsupported, or password-protected upload.
-HTTP 413 means the file exceeds 10 MB. HTTP 422 means a missing upload or no
-extractable text; scanned PDFs need OCR, which is not implemented in this stage.
-Review the JSON `detail` field for the specific explanation.
+From `frontend/`:
 
-`POST /documents/embed` sends text to Gemini and requires `GEMINI_API_KEY`.
-Extraction and chunking do not require API keys. `POST /documents/ingest` embeds
-and stores chunks locally; `GET /documents/{document_id}/chunks` reads them back.
-`POST /documents/{document_id}/search` retrieves matching passages within one document.
-`POST /documents/{document_id}/ask` generates cited answers or abstains from retrieved evidence.
-The React frontend lives in `frontend/`; see the stage-nine guide for local setup. Generation provider calls are also mocked in tests. Local environment files, PDFs, virtual
-environments, and generated database directories are excluded from Git.
+```bash
+npm run build
+```
 
-Complete stage-one file contents are included in [the walkthrough](docs/stage-1.md).
-That walkthrough records the stage-one snapshot. See the [stage-two walkthrough](docs/stage-2.md)
-for current router code, complete chunking code, and Swagger testing instructions
-for `POST /documents/chunks` (default: 200 words, 40-word overlap).
-See the [stage-three walkthrough](docs/stage-3.md) for API key configuration,
-embedding concepts, full current router code, and live Swagger verification.
+The production build passed. The frontend upload, citation, and abstention flows
+were manually confirmed; automated browser verification was unavailable.
+Edit `frontend/src/` and `frontend/index.html`, not generated `frontend/dist/` files.
 
-The [stage-four walkthrough](docs/stage-4.md) covers persistent storage, current
-router code, document IDs, and verification across server restarts.
+## Measured evaluation
 
-The [stage-five walkthrough](docs/stage-5.md) explains semantic search, top-k,
-cosine distance, current source code, and Swagger verification.
+The dataset in `backend/evaluation/policy_cases.json` contains four supported
+questions and two unsupported questions against a single synthetic PDF with only
+**two chunks**. These are smoke checks, not broad healthcare benchmarks.
 
-The [stage-six walkthrough](docs/stage-6.md) explains grounded answer generation,
-citation checks, abstention, prompt injection limitations, complete code, and live tests.
+| Observation | Run 2 | Run 3 |
+|---|---:|---:|
+| Completed cases / attempted | 6/6 | 5/6 |
+| API errors | 0 | 1 timeout (504) |
+| Macro Recall@2 over supported completed cases | 100% (4 cases) | 100% (4 cases) |
+| Answer phrase match | 4/4 | 4/4 |
+| Unsupported-question abstention | 2/2 | 1/1 completed |
+| Citation location/quote heuristic | 2/5, original rule | 5/5, revised rule |
+| Mean search round trip | 0.750 seconds | 0.699 seconds |
+| Mean ask round trip | 11.111 seconds | 11.803 seconds |
 
-`GET /documents` lists saved uploads and their IDs without a cloud call.
-See the [stage-seven walkthrough](docs/stage-7.md) for complete code and testing.
+Both runs used `gemini-3.5-flash-lite`. An earlier run failed all six generation
+requests. Run 3's timed-out question abstained correctly in a separate manual retry;
+that retry is not included in the saved run's metrics.
 
-The [stage-eight walkthrough](docs/stage-8.md) provides a six-case synthetic
-evaluation dataset, run commands, metric definitions, limitations, and human review
-instructions. Live aggregate results are pending; automated tests are not model
-accuracy measurements. Token usage is explicitly unmeasured in current reports.
+Retrieving both available chunks makes Recall@2 an easy check. Phrase matching is
+not semantic answer correctness. The citation heuristic changed between runs to
+accept longer real quotes containing the expected passage, so its scores are not
+directly comparable. Human correctness and faithfulness labels remain unset.
+Token usage and costs are not measured. Latency excludes failed cases.
 
-The [evaluation follow-up](docs/stage-8-follow-up.md) preserves line breaks in new
-chunks and versions a refined citation heuristic. Re-ingest to apply formatting
-changes; old uploads and evaluation reports remain unchanged.
+To run an evaluation, keep the backend running. From `backend/`:
 
-The [stage-nine walkthrough](docs/stage-9.md) covers the React interface, Node
-setup, frontend/backend startup, full source, manual verification, and build limitations.
-Frontend build verified; visual/browser verification remains pending.
+```bash
+python -m evaluation.run --document-id YOUR_DOCUMENT_UUID --top-k 2 --output evaluation/results/new-run.json
+```
+
+Replace the UUID using `GET /documents`. The runner verifies the expected passages,
+uses live cloud quota, and writes measured results without overwriting existing
+reports. Generated reports remain local and are excluded from Git.
+
+## Limitations
+
+- No authentication or ownership checks. Document IDs scope retrieval but do not authorize users.
+- No OCR for scanned PDFs, document deletion, hybrid search, reranking, or persistent chat history.
+- Citation presence checks and prompt boundaries do not eliminate hallucinations or guarantee prompt-injection resistance.
+- The 10 MB extraction read limit applies after multipart parsing; deployment needs server-level request and resource limits.
+- The document library scans chunk metadata and needs a catalog/pagination for larger datasets.
+- Provider rate limits, model access, timeouts, and availability can interrupt requests. Automatic retries are not implemented.
+- The Vite proxy is for development. Production deployment needs backend hosting, durable storage, secrets, access control, and API routing.
+- No production-readiness or healthcare compliance claim is made.
+
+HTTP 400 indicates invalid uploads; 413 indicates an oversized PDF; 422 indicates
+invalid inputs or no extractable text; 429 indicates provider quota/rate limits;
+502/503/504 indicate provider, storage, availability, or timeout errors. Inspect
+the safe response `detail`. Never share API keys while debugging.
+
+## Repository structure
+
+```text
+backend/
+  app/api/          FastAPI routes
+  app/services/     PDF extraction, chunking, embeddings, storage, generation
+  app/schemas/      Request validation
+  evaluation/       Synthetic dataset and evaluation runner
+  scripts/          Synthetic PDF generator
+  tests/            Automated tests
+frontend/
+  src/              React application and responsive CSS
+  vite.config.js    Development API proxy
+  package-lock.json Reproducible frontend dependencies
+```
+
+Environment files, PDFs, Chroma data, generated evaluation reports, virtual
+environments, dependencies, and build output are excluded from Git.
