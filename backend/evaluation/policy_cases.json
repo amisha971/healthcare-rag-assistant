@@ -1,0 +1,56 @@
+{
+  "dataset_id": "synthetic-policy-v1",
+  "cases": [
+    {
+      "id": "notify",
+      "question": "Who should staff notify about missing inspection entries?",
+      "expected_answer": "Report missing inspection entries to the shift coordinator.",
+      "answerable": true,
+      "required_phrases": ["shift coordinator"],
+      "sources": [{"filename": "synthetic-policy.pdf", "page_number": 3, "passage": "Report missing inspection entries to the shift coordinator."}]
+    },
+    {
+      "id": "record",
+      "question": "Where must staff record equipment inspections?",
+      "expected_answer": "In the daily checklist.",
+      "answerable": true,
+      "required_phrases": ["daily checklist"],
+      "sources": [{"filename": "synthetic-policy.pdf", "page_number": 1, "passage": "Staff must record equipment inspections in the daily checklist."}]
+    },
+    {
+      "id": "notify-paraphrase",
+      "question": "Who handles reports about incomplete inspection records?",
+      "expected_answer": "The shift coordinator.",
+      "answerable": true,
+      "required_phrases": ["shift coordinator"],
+      "sources": [{"filename": "synthetic-policy.pdf", "page_number": 3, "passage": "Report missing inspection entries to the shift coordinator."}]
+    },
+    {
+      "id": "both-policies",
+      "question": "Where are equipment inspections recorded, and who receives reports of missing entries?",
+      "expected_answer": "Record inspections in the daily checklist and report missing entries to the shift coordinator.",
+      "answerable": true,
+      "required_phrases": ["daily checklist", "shift coordinator"],
+      "sources": [
+        {"filename": "synthetic-policy.pdf", "page_number": 1, "passage": "Staff must record equipment inspections in the daily checklist."},
+        {"filename": "synthetic-policy.pdf", "page_number": 3, "passage": "Report missing inspection entries to the shift coordinator."}
+      ]
+    },
+    {
+      "id": "cafeteria",
+      "question": "What time does the cafeteria open?",
+      "expected_answer": "Abstain: cafeteria hours are not provided.",
+      "answerable": false,
+      "required_phrases": [],
+      "sources": []
+    },
+    {
+      "id": "retention",
+      "question": "How many years must inspection checklists be retained?",
+      "expected_answer": "Abstain: the retention period is not provided.",
+      "answerable": false,
+      "required_phrases": [],
+      "sources": []
+    }
+  ]
+}
